@@ -1,0 +1,12 @@
+<xml>
+   <user>
+      <name>user1</name>
+      <age>45</age>
+      <location>spain</location>
+   </user>
+   <user>
+      <name>user2</name>
+      <age>25</age>
+      <location>france</location>
+   </user>
+</xml>
