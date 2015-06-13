@@ -1,0 +1,7 @@
+build/
+tmp/
+test.log
+contrib/
+conflict.log
+classes/
+usecases/review/*.xml
