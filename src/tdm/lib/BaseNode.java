@@ -1,4 +1,4 @@
-// $Id: BaseNode.java,v 1.11 2003/01/30 09:21:07 ctl Exp $ D
+// $Id: BaseNode.java,v 1.12 2006/02/06 08:50:14 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -34,6 +34,10 @@ public class BaseNode extends Node {
   // Left and right matches
   private MatchedNodes left=null;
   private MatchedNodes right=null;
+
+  protected BaseNode() {
+    super();
+  }
 
   public BaseNode( XMLNode aContent ) {
     super();

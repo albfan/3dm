@@ -1,4 +1,4 @@
-// $Id: TreeDiffMerge.java,v 1.9.4.1 2006/02/07 10:20:32 ctl Exp $ D
+// $Id: TreeDiffMerge.java,v 1.11 2006/02/07 11:02:57 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -56,7 +56,7 @@ public class TreeDiffMerge {
       String ver = tdmPack.getSpecificationVersion();
       String build = tdmPack.getImplementationVersion();
       System.err.println("3DM XML Tree Differencing and Merging Tool version "+
-                         ver+" build "+build );
+                         ver+"\nBuild id "+build );
       System.err.println("Usage: 3dm [options] {-m base branch1 branch2|-d "+
       "base branch1 |-p base patch} [outfile]" );
       System.err.println("Use the -m (or --merge) option to merge the files "+

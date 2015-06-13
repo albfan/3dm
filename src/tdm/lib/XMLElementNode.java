@@ -1,4 +1,4 @@
-// $Id: XMLElementNode.java,v 1.13 2003/01/30 09:25:44 ctl Exp $ D
+// $Id: XMLElementNode.java,v 1.14 2006/02/03 16:04:20 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -150,7 +150,7 @@ public class XMLElementNode extends XMLNode {
 //$CUT
 
   public int getContentHash() {
-  return (attrHash[0]+attrHash[1]<<8+attrHash[2]<<16+attrHash[3]<<24)^nHashCode;
+    return (attrHash[0]+(attrHash[1]<<8)+(attrHash[2]<<16)+(attrHash[3]<<24))^nHashCode;
   }
 
   public Object clone() {

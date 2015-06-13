@@ -1,4 +1,4 @@
-// $Id: MatchedNodes.java,v 1.10 2003/01/09 14:15:26 ctl Exp $ D
+// $Id: MatchedNodes.java,v 1.11 2006/02/06 11:35:51 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -31,7 +31,7 @@ public class MatchedNodes {
   private BaseNode owner=null;
   private Set matches=new HashSet();
 
-  /** Create a new conatiner of matched nodes. All nodes in the container are
+  /** Create a new container of matched nodes. All nodes in the container are
    *  matched to the owner node.
    *  @param aowner Owner of the container.
    */

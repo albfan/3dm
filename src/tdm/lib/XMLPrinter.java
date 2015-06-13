@@ -1,4 +1,4 @@
-// $Id: XMLPrinter.java,v 1.9 2006/02/03 11:27:45 ctl Exp $
+// $Id: XMLPrinter.java,v 1.11 2006/02/06 11:57:59 ctl Exp $
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -75,7 +75,8 @@ public class XMLPrinter extends DefaultHandler {
    public void startDocument ()
    {
       childcounter =HAS_CONTENT;
-      pw.print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+      pw.print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"+
+        (prettyPrint ? "\n": ""));
       state = STATE_TAG;
    }
 
@@ -85,7 +86,7 @@ public class XMLPrinter extends DefaultHandler {
        //System.out.println("End document");
      if(!prettyPrint)
        pw.println();
-      pw.flush();
+     pw.flush();
    }
 
     java.util.Stack csstack = new java.util.Stack();
@@ -204,5 +205,27 @@ public class XMLPrinter extends DefaultHandler {
          b.append(data, off, scan - off);
       }
       return b.toString();
+   }
+
+   public void print( Node root ) {
+     print( root, false );
+   }
+
+   public void print( Node root, boolean fragment ) {
+     XMLNode c = root.getContent();
+     if( !fragment )
+       startDocument();
+     if( c instanceof XMLTextNode ) {
+       char[] text = ( (XMLTextNode) c).getText();
+       characters( text, 0, text.length);
+     } else {
+       startElement("","",((XMLElementNode) c).getQName(),((XMLElementNode) c).getAttributes());
+       for( int i=0;i<root.getChildCount();i++) {
+         print(root.getChildAsNode(i),true);
+       }
+       endElement("","",((XMLElementNode) c).getQName());
+     }
+     if( !fragment )
+       endDocument();
    }
 }

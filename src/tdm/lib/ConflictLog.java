@@ -1,4 +1,4 @@
-// $Id: ConflictLog.java,v 1.10 2006/02/02 15:37:53 ctl Exp $ D
+// $Id: ConflictLog.java,v 1.11 2006/02/03 15:48:38 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -104,6 +104,7 @@ public class ConflictLog {
 
   /** Output conflict list as XML.
    * @param ch Content handler to output the conflict to.
+   * @throws SAXException precolated up from the content handler
    */
   public void writeConflicts( ContentHandler ch ) throws SAXException {
     AttributesImpl atts = new AttributesImpl();
@@ -164,5 +165,9 @@ public class ConflictLog {
       ch.endElement("","","node");
     }
     ch.endElement("","",TYPETAGS[ce.type]);
+  }
+
+  public boolean hasConflicts() {
+    return conflicts.size() > 0;
   }
 }

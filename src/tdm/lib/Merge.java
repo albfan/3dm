@@ -1,4 +1,4 @@
-// $Id: Merge.java,v 1.40 2005/11/29 20:29:34 kre Exp $ D
+// $Id: Merge.java,v 1.42 2006/02/06 11:57:59 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -20,21 +20,22 @@
 //
 package tdm.lib;
 
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
+
+import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.SAXException;
-import org.xml.sax.Attributes;
 import org.xml.sax.helpers.AttributesImpl;
-import java.util.Vector;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
 
 /** 3-way merge of a base and two branch trees. */
 
-public class Merge {
+public class Merge implements XMLNode.Merger {
 
   private TriMatching m = null;
   private PathTracker pt = new PathTracker();
@@ -61,18 +62,27 @@ public class Merge {
   public void merge( ContentHandler ch ) throws SAXException {
     pt.resetContext();
     ch.startDocument();
-    treeMerge( m.getLeftRoot(), m.getRightRoot(), ch );
+    try {
+      treeMerge(m.getLeftRoot(), m.getRightRoot(), new SAXExternalizer( ch ),this);
+    } catch ( IOException x) {
+      throw new SAXException("Externalizer threw IOException: "+x.getMessage());
+    }
     ch.endDocument();
   }
 
-///  int debug = 0; // Debug variable
+ int debug = 0; // Debug variable
 ///
   /** Main merging function. Merges the child lists of a and b, and then
    *  recurses for each child in the merged list.
    */
 
-  protected void treeMerge( BranchNode a, BranchNode b, ContentHandler ch )
-                            throws SAXException {
+  public void treeMerge( BranchNode a, BranchNode b, XMLNode.Externalizer ex,
+                            XMLNode.Merger nodeMerger )
+                            throws SAXException, IOException {
+/*    if (debug >= 0)
+      System.out.println("%%%% Recursion " + (a== null ? "-" : a.getContent()) + "," +
+                         (b==null ? "-" : b.getContent()));
+*/
 //$CUT
     if( (a != null && ((a.getBaseMatchType() | BranchNode.MATCH_CHILDREN) == 0 )) ||
         (b != null && ((b.getBaseMatchType() | BranchNode.MATCH_CHILDREN) == 0 ) ) )
@@ -86,27 +96,24 @@ public class Merge {
 //    System.out.println("A = " + a ==null ? "-" : a.getContent().toString());
 //    System.out.println("B = " + b ==null ? "-" : b.getContent().toString());
 //    System.out.println("--------------------------");
-
-
 /*
-  if( mlistA.getEntryCount() > 30 )
+    if( mlistA.getEntryCount() > 0 )
       debug=1;
-*/
-/*
+    else debug=0;
+
     if(debug>=0 ) {
       System.out.println("#########################################Merge A list");
       if( mlistA != null )
         mlistA.print();
       else
         System.out.println("--none--");
-      System.out.println("Merge B list");
+      System.out.println("#####################################Merge B list");
       if( mlistB != null )
         mlistB.print();
       else
         System.out.println("--none--");
       debug =0;
-    }
-*/
+    }*/
 //$CUT
     // Generate merge pair List, store in the merged object
     if( mlistA != null && mlistB != null )
@@ -119,33 +126,29 @@ public class Merge {
     if( debug>=0) {
       System.out.println("#########################################MERGED LIST");
       merged.print();
-    }
-*/
+    }*/
 //$CUT
     // Handle updates & Recurse
     for( int i=0;i<merged.getPairCount();i++) {
       MergePair mergePair = merged.getPair(i);
-      XMLNode mergedNode = mergeNodeContent( mergePair );
+      XMLNode mergedNode = mergeNodeContent( mergePair, nodeMerger );
       if( mergedNode instanceof XMLTextNode ) {
         XMLTextNode text = (XMLTextNode) mergedNode;
-        ch.characters(text.getText(),0,text.getText().length);
+        ex.startNode(text);
+        ex.endNode(text);
         // NOTE: Theoretically, if we have matched text and element nodes we
         // need to recurse here. But, the current matching algo never matches
         // across types, so there's no need for recursion
       } else {
         // It's an element node
-        XMLElementNode mergedElement = (XMLElementNode) mergedNode;
-        ch.startElement(mergedElement.getNamespaceURI(),
-                        mergedElement.getLocalName(),mergedElement.getQName(),
-                        mergedElement.getAttributes());
+        XMLNode mergedElement = mergedNode;
+        ex.startNode(mergedElement);
         // Figure out partners for recurse
         MergePair recursionPartners = getRecursionPartners( mergePair );
         // Recurse for subtrees
         treeMerge(recursionPartners.getFirstNode(),
-                  recursionPartners.getSecondNode(),ch);
-        ch.endElement(mergedElement.getNamespaceURI(),
-                      mergedElement.getLocalName(),
-                      mergedElement.getQName());
+                  recursionPartners.getSecondNode(),ex,nodeMerger);
+        ex.endNode(mergedElement);
       }
       pt.nextChild();
     }
@@ -153,7 +156,7 @@ public class Merge {
   }
 
   /** Return merged content of the nodes in a merge pair. */
-  protected XMLNode mergeNodeContent( MergePair mp ) {
+  protected XMLNode mergeNodeContent( MergePair mp, XMLNode.Merger nodeMerger ) {
     // Merge contents of node and partner (but only if there's a partner)
     // -------------------
     // Table
@@ -174,14 +177,14 @@ public class Merge {
         logUpdateOperation(n2);
         return n2.getContent();
       } else
-        return cmerge( n1, n2 );
+        return cmerge( n1, n2, nodeMerger );
     } else {
        // n1 doesn't match content
       if( n2.isMatch(BranchNode.MATCH_CONTENT) ) {
         logUpdateOperation(n1);
         return n1.getContent();
       } else // Neither matches content => forced merge
-        return cmerge( n1, n2 );
+        return cmerge( n1, n2, nodeMerger );
     }
   }
 
@@ -216,12 +219,16 @@ public class Merge {
   }
 
   /** Merge content of two nodes. */
-  private XMLNode cmerge( BranchNode a, BranchNode b ) {
+  private XMLNode cmerge( BranchNode a, BranchNode b, XMLNode.Merger nodeMerger ) {
     boolean aUpdated = !matches( a, a.getBaseMatch() ),
             bUpdated = !matches( b, b.getBaseMatch() );
     if( aUpdated && bUpdated ) {
 ///        System.out.println(a.isLeftTree() + ": " + a.getContent().toString() );
 ///        System.out.println(b.isLeftTree() + ": " + b.getContent().toString() );
+      if( !a.isLeftTree() ) {
+        // Ensure a is always left; its convenient for external node mergers
+        BranchNode tmp=a; a=b; b=tmp;
+      }
       if( matches( a, b ) ) {
         clog.addNodeWarning(ConflictLog.UPDATE,
           "Node updated in both branches, but updates are equal",
@@ -229,19 +236,15 @@ public class Merge {
         logUpdateOperation(a);
         return a.getContent();
       } else {
-        XMLNode merged = null;
         // if XMLElementNode try merging attributes; if XMLTextnode give up
-        if( a.getContent() instanceof XMLElementNode &&
-            b.getContent() instanceof XMLElementNode ) {
-///          /*System.err.println("EMMERGE");
+///          /*System.err.println("EMERGE");
 ///           System.err.println("base="+a.getBaseMatch().getContent().toString());
 ///           System.err.println("a="+a.getContent().toString());
 ///           System.err.println("b="+b.getContent().toString());*/
-          merged = mergeElementNodes(
-            (XMLElementNode) a.getBaseMatch().getContent(),
-            (XMLElementNode) a.getContent(), (XMLElementNode) b.getContent() );
+        XMLNode merged = nodeMerger.merge(a.getBaseMatch().getContent(),
+                                          a.getContent(),
+                                          b.getContent() );
 ///           //System.err.println("m=" + (merged==null ? "CONFLICT" : merged.toString()));
-        }
         if( merged != null )
           return merged;
         // XMLTextNodes, or failed to merge element nodes => conflict
@@ -253,27 +256,29 @@ public class Merge {
 ///         System.out.println(a.getContent().toString());
 ///         System.out.println(b.getContent().toString());
 /// */
-        if( a.isLeftTree() ) {
-          logUpdateOperation(a);
-          return a.getContent();
-        } else {
-          logUpdateOperation(b);
-          return b.getContent();
-        }
+        logUpdateOperation(a);
+        return a.getContent();
       }
     } else if ( bUpdated ) {
       logUpdateOperation(b);
       return b.getContent();
-    } else if (aUpdated ) {
+    } else if ( aUpdated ) {
       logUpdateOperation(a);
       return a.getContent();
     } else
       return a.getContent(); // none modified, a or b is ok
   }
 
-  /** Merge content of two element nodes. */
-  private XMLElementNode mergeElementNodes( XMLElementNode baseN,
-    XMLElementNode aN, XMLElementNode bN ) {
+  /** Merge content of two nodes. */
+  public XMLNode merge( XMLNode baseNode, XMLNode aNode, XMLNode bNode ) {
+    if( !(baseNode instanceof XMLElementNode) ||
+        !(aNode instanceof XMLElementNode) ||
+        !(bNode instanceof XMLElementNode) )
+      return null; // Can't merge
+    XMLElementNode baseN = (XMLElementNode) baseNode;
+    XMLElementNode aN = (XMLElementNode) aNode;
+    XMLElementNode bN = (XMLElementNode) bNode;
+
 ///     //System.err.println("!!! in mergeElementNodes");
     String tagName ="";
     if( baseN.getQName().equals(bN.getQName()))
@@ -911,14 +916,17 @@ public class Merge {
     }
 //$CUT
 
+    // node | child0 | inserts
     void print(int pos) {
       System.out.print(pos+": ");
       System.out.print(isMoved() ? 'm' : '-');
       System.out.print(locked ? '*' : '-');
       System.out.print(mergePartner!=null ? 'p' : '-');
-      System.out.print(' ' + node.getContent().toString() + ' ');
+      System.out.print(' ' + node.getContent().toString() + " |");
       if( node.getChildCount() > 0 )
-        System.out.print(' ' + node.getChild(0).getContent().toString() + ' ');
+        System.out.print(' ' + node.getChild(0).getContent().toString() + " | ");
+      else
+        System.out.print(" - | "); // No children
       System.out.println( inserts.toString() );
     }
 
@@ -1072,5 +1080,96 @@ public class Merge {
       matches &= treeMatches(a.getChildAsNode(i),b.getChildAsNode(i));
     return matches;
   }
+
+  private class SAXExternalizer implements XMLNode.Externalizer {
+
+    private ContentHandler ch;
+
+    public SAXExternalizer(ContentHandler ch) {
+      this.ch=ch;
+    }
+
+    public void startNode(XMLNode n) throws SAXException {
+      if( n instanceof XMLTextNode )
+        ch.characters( ( (XMLTextNode) n).getText(), 0,
+                      ( (XMLTextNode) n).getText().length);
+      else {
+        XMLElementNode e = (XMLElementNode) n;
+        ch.startElement(e.getNamespaceURI(),
+                        e.getLocalName(),e.getQName(),
+                        e.getAttributes());
+
+      }
+    }
+
+    public void endNode(XMLNode n) throws SAXException {
+      if( n instanceof XMLTextNode )
+        return;
+      XMLElementNode e = (XMLElementNode) n;
+      ch.endElement(e.getNamespaceURI(),
+                    e.getLocalName(),
+                    e.getQName());
+
+    }
+  }
+
+/*
+  public interface Node {
+
+    public Node getParentAsNode();
+    public int getChildCount();
+
+    public Node getChildAsNode(int ix);
+
+    public boolean hasLeftSibling();
+
+    public boolean hasRightSibling();
+    public Node getLeftSibling();
+
+    public Node getRightSibling();
+
+    public XMLNode getContent( );
+    public int getChildPos();
+
+  }
+
+  public interface BaseNode extends Node {
+
+  }
+
+  public interface BranchNode extends Node {
+    // Match types
+    // NOTE: If you change these, remember to change MATCHING_ATT_TYPES also!
+    public static final int MATCH_FULL = 3;
+    public static final int MATCH_CONTENT = 1;
+    public static final int MATCH_CHILDREN = 2;
+
+    public BranchNode getChild( int ix );
+
+    public BranchNode getParent();
+
+    public void setPartners(MatchedNodes p);
+
+    public MatchedNodes getPartners();
+
+    public void setBaseMatch(BaseNode p, int amatchType);
+
+    public void setMatchType( int amatchType );
+
+    public void delBaseMatch();
+
+    public int getBaseMatchType();
+
+    public boolean hasBaseMatch();
+
+    public BaseNode getBaseMatch();
+
+    public boolean isLeftTree();
+
+    public boolean isMatch( int type);
+
+    public BranchNode getFirstPartner( int typeFlags );
+
+  }*/
 }
 

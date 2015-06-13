@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
-<!-- $Id: build.xml,v 1.9.2.1 2006/02/07 10:20:32 ctl Exp $ -->
+<!-- $Id: build.xml,v 1.11 2006/02/07 11:01:38 ctl Exp $ -->
 <project name="3dm" default="3dm" basedir=".">
 
   <description>3DM build file</description>
@@ -167,7 +167,7 @@ message="The test is successful if there are no errors, and the diff below is &l
       <attribute name="Implementation-Version" 
                 value="${3dm.version}-${build.stamp}" />
     </manifest>
-    <jar jarfile="${build-jar}/3dm.jar" basedir="${build}"
+    <jar jarfile="${build-jar}/3dm-${3dm.version}.jar" basedir="${build}"
          manifest="${build-jar}/MANIFEST.MF" >
       <include name="tdm/**" />
       <exclude name="tdm/test/**" />
@@ -179,6 +179,13 @@ message="The test is successful if there are no errors, and the diff below is &l
 "build.xml,COPYING,contrib/*.xml,mergecases/**,src/**,usecases/**"
          excludes="*~" 
          longfile="gnu" />
+    <echo>Below is output from release jar using no args</echo>
+    <java classname="tdm.tool.TreeDiffMerge" fork="yes">
+      <classpath>
+        <path refid="libpath" />
+        <pathelement path="${build-jar}/3dm-${3dm.version}.jar" /> 
+      </classpath>
+    </java>
   </target>
 
   <target name="clean">

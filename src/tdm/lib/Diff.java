@@ -1,4 +1,4 @@
-// $Id: Diff.java,v 1.11 2004/03/09 09:40:56 ctl Exp $ D
+// $Id: Diff.java,v 1.21 2006/02/06 11:20:28 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -31,238 +31,336 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Iterator;
-import tdm.lib.Diff.*;
+import java.util.List;
+import java.io.IOException;
 
 /** Produces the diff between two naturally matched trees.
  *  Collapsing multiple copy-ops using the run attribute is not implemented in
- *  this version.
+ *  this version. <b>NOTE: Format of diff root tag changed in CVS rev
+ *  1.16</b> Current code reads old diffs, but new diffs are not
+ *  necesarily readable by old code!
  */
 
-public class Diff {
+public class Diff extends DiffAlgorithm {
 
-  private static final int NO_DST_REQUIRED = Integer.MIN_VALUE;
+  // Instance vars
+  private Configuration cf = DEFAULT_CONFIG;
+  private Object branchRoot;
+
+  private ContentHandler ch=null; // NOTE: Can't run multiple diffs concurrently!
+  private NodeIndex index = null;
   private Matching m = null;
   private static final Attributes EMPTY_ATTS = new AttributesImpl();
-  static final Set RESERVED;
 
-  static final String DIFF_NS ="diff:";
-  static {
-      RESERVED = new HashSet();
-      RESERVED.add(DIFF_NS+"copy");
-      RESERVED.add(DIFF_NS+"insert");
-      RESERVED.add(DIFF_NS+"esc");
-  }
+  /*private PRIVATIZE LATER*/ static final Configuration DEFAULT_CONFIG = new Configuration();
+
+//  static final Set RESERVED;
+
+// These need to be removed when there are no longer any external dependencies!
+  static final String DIFF_NS = DEFAULT_CONFIG.DIFF_NS;
+  public static final String DIFF_COPY_TAG = DIFF_NS+"copy";
+  public static final String DIFF_INS_TAG = DIFF_NS+"insert";
+  public static final String DIFF_ESC_TAG = DIFF_NS+"esc";
+  public static final String DIFF_ROOT_TAG = "diff";
+
+  public static final String DIFF_CPYSRC_ATTR = "src";
+  public static final String DIFF_CPYDST_ATTR = "dst";
+  public static final String DIFF_CPYRUN_ATTR = "run";
+  public static final String DIFF_ROOTOP_ATTR = "op";
+
+  public static final String DIFF_ROOTOP_INS = "insert";
+//endkill
 
   /** Construct a diff operating on the matched trees passed to the constructor.
    *  Note that the matching contains pointers to the base and new trees.
    *  @param am Matching between trees to diff
    */
   public Diff(Matching am) {
-    m=am;
+    this( am, new BFSIndex(am.getBaseRoot()));
   }
+
+  public Diff(Matching am, NodeIndex aIx) {
+    index = aIx;
+    m = am;
+//    se = new TdmSequence(index);
+    branchRoot = am.getBranchRoot();
+  }
+
+  public Diff(Configuration aCf,
+              Object aBranchRoot) {
+   cf = aCf;
+   branchRoot = aBranchRoot;
+ }
+
+/*  public Diff(Matching am, NodeIndex aIndex) {
+    m=am;
+    index = aIndex;
+  }*/
 
   /** Encode the diff between the trees passed to the constructor.
    *  @param ch Output encoder for the diff
    */
-  public void diff( ContentHandler ch ) throws SAXException {
-    enumerateNodes(m.getBaseRoot(),nodeNumbers);
-    ch.startDocument();
-    ch.startElement("","","diff",EMPTY_ATTS);
-    Vector stopNodes = new Vector();
-    m.getAreaStopNodes(stopNodes, m.getBranchRoot());
-    copy(m.getBaseRoot(), m.getBranchRoot(), ch, stopNodes);
-    ch.endElement("","","diff");
-    ch.endDocument();
-  }
-
-  protected void copy(BaseNode b, BranchNode branch, ContentHandler ch,
-                      Vector stopNodes) throws
-      SAXException {
-    // Find stopnodes
-    Sequence s = new Sequence();
-    for (Iterator i = stopNodes.iterator(); i.hasNext(); ) {
-      BranchNode stopNode = (BranchNode) i.next();
-      int dst = getDiffId(stopNode.getBaseMatch());
-      // BUGFIX 030115
-      if (stopNode.getChildCount() == 0) {
-        AttributesImpl copyAtts = new AttributesImpl();
-        copyAtts.addAttribute("", "", "dst", "CDATA", String.valueOf(dst));
-        ch.startElement("", "", DIFF_NS + "insert", copyAtts);
-        ch.endElement("", "", DIFF_NS + "insert");
-      }
-      // ENDBUGFIX
-      emitChildList(ch, s, stopNode, dst, false);
+  public void diff(ContentHandler ch) throws SAXException {
+    this.ch = ch;
+    try {
+      diff(branchRoot);
+    } catch (IOException x) {
+      throw new SAXException(x);
     }
   }
 
-
-  protected void insert(BranchNode branch, ContentHandler ch) throws
-      SAXException {
-    XMLNode content = branch.getContent();
-    if (content instanceof XMLTextNode) {
-      XMLTextNode ct = (XMLTextNode) content;
-      ch.characters(ct.getText(), 0, ct.getText().length);
-    }
-    else {
-      // Element node
-      Sequence s = new Sequence();
-      XMLElementNode ce = (XMLElementNode) content;
-      boolean escape = RESERVED.contains(ce.getQName());
-      if (escape)
-        ch.startElement("", "", DIFF_NS + "esc", EMPTY_ATTS);
-      ch.startElement(ce.getNamespaceURI(), ce.getLocalName(), ce.getQName(),
-                      ce.getAttributes());
-      if (escape)
-        ch.endElement("", "", DIFF_NS + "esc");
-      emitChildList(ch, s, branch, NO_DST_REQUIRED , true);
-      if (escape)
-        ch.startElement("", "", DIFF_NS + "esc", EMPTY_ATTS);
-      ch.endElement(ce.getNamespaceURI(), ce.getLocalName(), ce.getQName());
-      if (escape)
-        ch.endElement("", "", DIFF_NS + "esc");
-    }
-  }
-
-
-  private void emitChildList(ContentHandler ch, Sequence s, BranchNode parent,
-                             int dst, boolean insMode ) throws SAXException {
-    for (int ic = 0; ic < parent.getChildCount(); ic++) {
-      boolean lastStopNode = ic == parent.getChildCount() - 1;
-      BranchNode child = parent.getChild(ic);
-      if (child.hasBaseMatch()) {
-        Vector childStopNodes = new Vector();
-        m.getAreaStopNodes(childStopNodes, child);
-        int src = getDiffId(child.getBaseMatch());
-        if (childStopNodes.size() == 0 && !lastStopNode) {
-          if (s.isEmpty()) {
-            s.init(src, dst);
-            continue;
-          }
-          else if (s.appends(src, dst)) {
-            s.append();
-            continue;
-          }
-        }
-        // Did not append to sequence (or @ last stopnode) => emit sequence
-        if (!s.appends(src, dst)) {
-          // Current does not append to prev seq -> output prev seq + new
-          // in separate tags
-          if (!s.isEmpty()) {
-            openCopy(s.src, s.dst, s.run, ch);
-            closeCopy(ch);
-          }
-          if (childStopNodes.size() > 0 || lastStopNode) {
-            openCopy(src, dst, 1, ch);
-            copy(child.getBaseMatch(), child, ch, childStopNodes);
-            closeCopy(ch);
-            s.setEmpty(); // Reset sequence
-          }
-          else
-            s.init(src, dst);
-        }
-        else { // appends to open sequence (other reason for seq. break)
-          s.append();
-          openCopy(s.src, s.dst, s.run, ch);
-          copy(child.getBaseMatch(), child, ch, childStopNodes);
-          closeCopy(ch);
-          s.setEmpty(); // Reset sequence
-        }
-
-      } // endif has base match
-      else {
-        if (!s.isEmpty()) {
-          openCopy(s.src, s.dst, s.run, ch);
-          closeCopy(ch);
-          s.setEmpty();
-        }
-        if( !insMode ) {
-          // Insert tree...
-          AttributesImpl copyAtts = new AttributesImpl();
-          copyAtts.addAttribute("", "", "dst", "CDATA", String.valueOf(dst));
-          // SHORTINS = Concatenate several <ins> tags to a single one
-          if (ic == 0 || parent.getChild(ic - 1).hasBaseMatch()) // SHORTINS
-            ch.startElement("", "", DIFF_NS + "insert", copyAtts);
-        }
-        insert(child, ch);
-        if( !insMode ) {
-          if (lastStopNode || parent.getChild(ic + 1).hasBaseMatch()) // SHORTINS
-            ch.endElement("", "", DIFF_NS + "insert");
-        }
-      }
-    } // endfor children
-  }
-
-  protected Map nodeNumbers = new HashMap();
-
-  // Get BFS number of node
-  protected int getDiffId( Node n ) {
-    return ((Integer) nodeNumbers.get(n)).intValue();
-  }
 
   // BFS Enumeration of nodes. Useful beacuse adjacent nodes have subsequent ids
   // => diff can use the "run" attribute more often
-  protected void enumerateNodes( Node start, Map map ) {
-    int id = 0;
-    LinkedList queue = new LinkedList();
-    queue.add(start);
-    while( !queue.isEmpty() ) {
-      Node n = (Node) queue.removeFirst();
-      map.put(n,new Integer(id));
-      for( int i=0;i<n.getChildCount();i++)
-        queue.add(n.getChildAsNode(i));
-      id++;
+
+  static class BFSIndex implements NodeIndex, IdIndex {
+
+    protected Map nodeToNumber = new HashMap();
+    protected Map numberToNode = new HashMap();
+    private Object rootId = null;
+
+    public BFSIndex( Node root ) {
+      int id = 0;
+      LinkedList queue = new LinkedList();
+      queue.add(root);
+      while( !queue.isEmpty() ) {
+        Node n = (Node) queue.removeFirst();
+        nodeToNumber.put(n,new Long(id));
+        numberToNode.put(String.valueOf(id),n);
+        for( int i=0;i<n.getChildCount();i++)
+          queue.add(n.getChildAsNode(i));
+        id++;
+      }
+      rootId=getId(root).toString();
+    }
+
+    public Object getId(Object n) {
+      return nodeToNumber.get(n);
+    }
+
+    public Node lookup(Object id) {
+      return (Node) numberToNode.get(id.toString());
+    }
+
+    public Object getRootId() {
+      return rootId;
+    }
+
+  }
+
+  public static class Configuration {
+
+    protected Set RESERVED=null;
+
+    protected String DIFF_NS =""; //diff:"; //XDiFf-"; // should be solved using proper namespaces!
+    protected String DIFF_COPY_TAG = DIFF_NS+"copy";
+    protected String DIFF_INS_TAG = DIFF_NS+"insert";
+    protected String DIFF_ESC_TAG = DIFF_NS+"esc";
+    protected String DIFF_ROOT_TAG = "diff";
+
+    protected String DIFF_CPYSRC_ATTR = "src";
+    protected String DIFF_CPYDST_ATTR = "dst";
+    protected String DIFF_CPYRUN_ATTR = "run";
+    protected String DIFF_ROOTOP_ATTR = "op";
+
+    protected final String DIFF_ROOTOP_INS = "insert";
+
+    protected boolean useQName = true;
+
+    public Configuration() {
+      init();
+    }
+
+    public Configuration( String aNameSpace,
+                          String aCopyTag,
+                          String aInsTag,
+                          String aEscTag,
+                          String aRootTag,
+                          String aCopySrcAttr,
+                          String aCopyDstAttr,
+                          String aCopyRunAttr,
+                          String aRootOpAttr,
+                          boolean aUseQNames ) {
+      DIFF_NS = aNameSpace;
+      DIFF_COPY_TAG = aCopyTag;
+      DIFF_INS_TAG = aInsTag;
+      DIFF_ESC_TAG = aEscTag;
+      DIFF_ROOT_TAG = aRootTag;
+      DIFF_CPYSRC_ATTR = aCopySrcAttr;
+      DIFF_CPYDST_ATTR = aCopyDstAttr;
+      DIFF_CPYRUN_ATTR = aCopyRunAttr;
+      DIFF_ROOTOP_ATTR = aRootOpAttr;
+      useQName = aUseQNames;
+      init();
+    }
+
+    protected void init() {
+      RESERVED = new HashSet();
+      RESERVED.add(DIFF_COPY_TAG);
+      RESERVED.add(DIFF_INS_TAG);
+      RESERVED.add(DIFF_ESC_TAG);
     }
   }
 
-  protected void openCopy( int src, int dst, int run, ContentHandler ch )
-      throws SAXException {
+/*
+  public interface TreeAbstraction {
+    public List getStopNodes( Object changeNode );
+    public Object lookupBase( Object changeNode );
+    public void content( Object node, boolean start) throws SAXException; // return open tagname
+    //public boolean needsEscape( Object changeNode );
+    public Iterator getChildIterator(Object changeNode);
+    //public String identify(Object changeNode);
+    //public String getRun(Object start, Object end);
+    public boolean appends( Object baseTail, Object baseNext );
+  }*/
+
+
+  // 3dm XML implementation
+
+  public List getStopNodes(Object changeNode) {
+    Vector v = new Vector();
+    m.getAreaStopNodes(v, (BranchNode) changeNode);
+    return v;
+  }
+
+  public Object lookupBase(Object changeNode) {
+    return ( (BranchNode) changeNode).getBaseMatch();
+  }
+
+  public Object getChangeRoot() {
+    return m.getBranchRoot();
+  }
+
+  protected void content(Object branch, boolean open) throws IOException {
+    try {
+      if (branch instanceof DiffOperation) {
+        DiffOperation op = (DiffOperation) branch;
+        AttributesImpl rootAtts = new AttributesImpl();
+        switch (op.getOperation()) {
+          case DiffOperation.ROOT_INSERT:
+            addAttribute(rootAtts, cf.DIFF_ROOTOP_ATTR, cf.DIFF_ROOTOP_INS);
+          case DiffOperation.ROOT_COPY:
+            boolean hasNamespace = cf.DIFF_NS != null &&
+                cf.DIFF_NS.length() > 0;
+            if (open) {
+              ch.startDocument();
+              if (hasNamespace)
+                ch.startPrefixMapping("diff", cf.DIFF_NS);
+              startElem(ch, cf.DIFF_ROOT_TAG, rootAtts);
+            } else {
+              endElem(ch, cf.DIFF_ROOT_TAG);
+              if (hasNamespace)
+                ch.endPrefixMapping("diff");
+              ch.endDocument();
+            }
+            break;
+          case DiffOperation.COPY:
+            if (open)
+              openCopy(op.getSource(), op.getDestination(), op.getRun(), ch);
+            else
+              endElem(ch, cf.DIFF_COPY_TAG);
+            break;
+          case DiffOperation.INSERT:
+            if (open) {
+              AttributesImpl atts = new AttributesImpl();
+              if (op.getDestination() != null)
+                addAttribute(atts, cf.DIFF_CPYDST_ATTR,
+                             identify(op.getDestination()));
+              startElem(ch, cf.DIFF_INS_TAG, atts);
+            } else
+              endElem(ch, cf.DIFF_INS_TAG);
+            break;
+          default:
+            throw new UnsupportedOperationException("Unknown diffop: " +
+                op.getOperation());
+        }
+        return;
+      }
+      XMLNode content = ( (BranchNode) branch).getContent();
+      if (content instanceof XMLTextNode) {
+        if (!open)
+          return;
+        XMLTextNode ct = (XMLTextNode) content;
+        ch.characters(ct.getText(), 0, ct.getText().length);
+      } else {
+        // Element node
+        XMLElementNode ce = (XMLElementNode) content;
+        // FIXME: Esscape code is broken! (it never worked anyway)
+//        if( needsEscape(branch) )
+//          startElem(ch,cf.DIFF_ESC_TAG,EMPTY_ATTS);
+        if (open)
+          ch.startElement(ce.getNamespaceURI(), ce.getLocalName(),
+                          ce.getQName(),
+                          ce.getAttributes());
+        else
+          ch.endElement(ce.getNamespaceURI(), ce.getLocalName(), ce.getQName());
+//        if( needsEscape(branch) )
+//          endElem(ch,cf.DIFF_ESC_TAG);
+      }
+    } catch ( SAXException x) {
+      throw new IOException(x.getMessage());
+    }
+  }
+
+  // Workaround QName hell
+
+  protected void addAttribute(AttributesImpl a, String name, String value) {
+    if (cf.useQName)
+      a.addAttribute("", "", name, "CDATA", value);
+    else
+      a.addAttribute("" /*cf.DIFF_NS*/, name, "", "CDATA", value);
+  }
+
+  protected void startElem(ContentHandler c, String name, Attributes atts) throws
+      SAXException {
+    if (cf.useQName)
+      c.startElement("", "", name, atts);
+    else
+      c.startElement(cf.DIFF_NS, name, "", atts);
+  }
+
+  protected void endElem(ContentHandler c, String name) throws
+      SAXException {
+    if (cf.useQName)
+      c.endElement("", "", name);
+    else
+      c.endElement(cf.DIFF_NS, name, "");
+  }
+
+  protected void openCopy(Object src, Object dst, Long run, ContentHandler ch) throws
+      SAXException {
     AttributesImpl copyAtts = new AttributesImpl();
-    copyAtts.addAttribute("", "", "src", "CDATA", String.valueOf(src));
-    if( dst != NO_DST_REQUIRED )
-      copyAtts.addAttribute("", "", "dst", "CDATA", String.valueOf(dst));
-    if( run > 1)
-      copyAtts.addAttribute("", "", "run", "CDATA", String.valueOf(run));
-    ch.startElement("", "", DIFF_NS + "copy", copyAtts);
+    addAttribute(copyAtts, cf.DIFF_CPYSRC_ATTR, identify(src));
+    if (dst != DiffOperation.NO_VALUE)
+      addAttribute(copyAtts, cf.DIFF_CPYDST_ATTR, identify(dst));
+    if (run != DiffOperation.NO_VALUE)
+      addAttribute(copyAtts, cf.DIFF_CPYRUN_ATTR, run.toString());
+    startElem(ch, cf.DIFF_COPY_TAG, copyAtts);
   }
 
-  protected void closeCopy( ContentHandler ch )
-    throws SAXException {
-    ch.endElement("", "", DIFF_NS + "copy");
+  protected void closeCopy(ContentHandler ch) throws SAXException {
+    endElem(ch, cf.DIFF_COPY_TAG);
   }
 
-  protected void openInsert( int src, int dst ) {
-
+  public boolean needsEscape(Object changeNode) {
+    XMLNode content = ( (BranchNode) changeNode).getContent();
+    if (content instanceof XMLElementNode &&
+        DEFAULT_CONFIG.RESERVED.contains( ( (XMLElementNode) content).getQName()))
+      return true;
+    return false;
   }
 
-  protected void closeInsert() {
-
+  public Iterator getChildIterator(Object changeNode) {
+    return ( (BranchNode) changeNode).children.listIterator();
   }
 
-  class Sequence {
-    int src = -1;
-    int run = -1;
-    int dst = -1;
-
-    void setEmpty() {
-      run = -1;
-    }
-
-    boolean isEmpty() {
-      return run == -1;
-    }
-
-    void init(int asrc, int adst) {
-      src = asrc;
-      dst = adst;
-      run = 1;
-    }
-
-    void append() {
-      run++;
-    }
-
-    boolean appends(int asrc, int adst) {
-      return !isEmpty() && adst == dst && asrc == (src + run);
-    }
+  public boolean appends(Object tail, Object next) {
+    return ( (Number) index.getId(next)).longValue() ==
+        ( (Number) index.getId(tail)).longValue() + 1;
   }
+
+  public String identify(Object node) {
+    return index.getId(node).toString();
+  }
+
 }

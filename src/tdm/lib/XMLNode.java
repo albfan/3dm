@@ -1,4 +1,4 @@
-// $Id: XMLNode.java,v 1.11 2003/01/09 14:15:26 ctl Exp $ D
+// $Id: XMLNode.java,v 1.12 2006/02/06 11:39:38 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
@@ -21,6 +21,8 @@
 package tdm.lib;
 
 import java.security.MessageDigest;
+import java.io.IOException;
+import org.xml.sax.SAXException;
 
 /** Class for storing content of XML nodes. Supports fast equality comparison
  *  using MD5 hash codes, and automatic calculation of node infoSize. */
@@ -76,5 +78,15 @@ public abstract class XMLNode implements Cloneable {
     } catch (CloneNotSupportedException x ) {
       return null;
     }
+  }
+
+  public interface Externalizer {
+    public void startNode(XMLNode n) throws IOException, SAXException;
+    public void endNode(XMLNode n) throws IOException, SAXException;
+  }
+
+  public interface Merger {
+    /** Merge contents. Only called if both branch 1 and 2 differ from base */
+    public XMLNode merge( XMLNode baseNode, XMLNode aNode, XMLNode bNode );
   }
 }

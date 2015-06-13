@@ -1,4 +1,4 @@
-// $Id: Node.java,v 1.14 2003/01/30 09:22:39 ctl Exp $ D
+// $Id: Node.java,v 1.15 2006/02/06 11:57:59 ctl Exp $ D
 //
 // Copyright (c) 2001, Tancred Lindholm <ctl@cs.hut.fi>
 //
